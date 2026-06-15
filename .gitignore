@@ -1,0 +1,36 @@
+# ===========================================================================
+# Keep the repo to the shareable tool only — never commit personal data,
+# genome files, or generated workbooks.
+# ===========================================================================
+
+# --- Input data (your genomes / annotations) ------------------------------
+*.gbk
+*.gbff
+*.gb
+*.genbank
+*.gbk.txt
+
+# --- Generated output ------------------------------------------------------
+*.xlsx
+~$*.xlsx          # Excel temporary lock files (created while a workbook is open)
+
+# --- Python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+
+# --- Editors / IDEs --------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+
+# --- OS junk ---------------------------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
