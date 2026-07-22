@@ -3,9 +3,9 @@
 
 A fusion shadow occurs when two proteins from broad superfamilies tile a fused
 bacterial protein even though neither is specifically descended from that fused
-family.  We build independent class profiles for AasN, LpaT, PlsC, PlsB and for
-AasC, split AasC, FadD, Acs, search all profiles against held-out full-length
-Aas proteins, and quantify the domain coverage obtained by every N×C class pair.
+family. We build independent class profiles for AasN, LpaT, PlsC, PlsB and for
+AasC, split AasC, FadD, Acs, search them against held-out full-length Aas
+proteins, and quantify the domain coverage obtained by every N x C class pair.
 """
 from __future__ import annotations
 
@@ -40,8 +40,9 @@ def search_domains(label: str, hmm: Path, fasta: Path) -> pd.DataFrame:
     if frame.empty:
         return frame
     frame["profile"] = label
-    frame = frame.sort_values(["target", "i_evalue", "score"], ascending=[True, True, False]).drop_duplicates("target")
-    return frame
+    return frame.sort_values(
+        ["target", "i_evalue", "score"], ascending=[True, True, False]
+    ).drop_duplicates("target")
 
 
 def interval_union(a0: int, a1: int, b0: int, b1: int, length: int) -> dict[str, float | bool]:
@@ -70,7 +71,7 @@ def main() -> None:
     panels_n, panels_c = core.class_panels()
     panels = {**panels_n, **panels_c}
 
-    # Use alternate Aas accessions for profile training and architecture testing.
+    # Alternate Aas accessions between profile training and architecture testing.
     aas = panels_n["AasN"].drop_duplicates("accession").reset_index(drop=True)
     indices = np.arange(len(aas))
     test_mask = indices % 2 == 1
@@ -79,7 +80,10 @@ def main() -> None:
 
     aas_fasta = OUT / "heldout_full_length_Aas.faa"
     core.write_fasta(aas_fasta, [(f"AAS|{r.accession}", r.sequence) for r in aas_test.itertuples()])
-    aas_test[["accession", "organism", "taxid", "full_length"]].to_csv(OUT / "heldout_Aas_inventory.tsv", sep="\t", index=False)
+    length_column = "full_length" if "full_length" in aas_test.columns else "length"
+    inventory = aas_test[["accession", "organism", "taxid", length_column]].copy()
+    inventory = inventory.rename(columns={length_column: "full_length"})
+    inventory.to_csv(OUT / "heldout_Aas_inventory.tsv", sep="\t", index=False)
 
     hmms: dict[str, Path] = {}
     for label in N_CLASSES + C_CLASSES:
@@ -105,7 +109,10 @@ def main() -> None:
             for target in common:
                 nr = n_hits[n_hits["target"].eq(target)].iloc[0]
                 cr = c_hits[c_hits["target"].eq(target)].iloc[0]
-                metrics = interval_union(nr.ali_from, nr.ali_to, cr.ali_from, cr.ali_to, max(nr.target_length, cr.target_length))
+                metrics = interval_union(
+                    nr.ali_from, nr.ali_to, cr.ali_from, cr.ali_to,
+                    max(nr.target_length, cr.target_length),
+                )
                 rows.append({
                     "N_class": n_class,
                     "C_class": c_class,
@@ -148,9 +155,8 @@ def main() -> None:
     )
     summary.to_csv(OUT / "class_pair_architecture_summary.tsv", sep="\t", index=False)
 
-    # Compare the observed Andalucia tiling to the class-pair matrix.
     observed_coverage = 0.901252
-    observed = {
+    observed: dict[str, object] = {
         "andalucia_median_combined_coverage": observed_coverage,
         "andalucia_N_class_by_profile": "PlsC",
         "andalucia_C_class_by_profile": "FadD",
@@ -165,7 +171,9 @@ def main() -> None:
     aas_pair = summary[(summary["N_class"].eq("AasN")) & (summary["C_class"].eq("AasC"))]
     if len(aas_pair):
         observed["AasN_AasC_positive_control"] = aas_pair.iloc[0].to_dict()
-    (OUT / "fusion_shadow_summary.json").write_text(json.dumps(observed, indent=2, default=str), encoding="utf-8")
+    (OUT / "fusion_shadow_summary.json").write_text(
+        json.dumps(observed, indent=2, default=str), encoding="utf-8"
+    )
     print(json.dumps(observed, indent=2, default=str))
 
 
