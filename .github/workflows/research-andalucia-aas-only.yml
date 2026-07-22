@@ -17,9 +17,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Validate self-contained analysis
+      - name: Validate and patch self-contained analysis
         run: |
           mkdir -p inputs
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('research/andalucia_aas_screen_standalone.py')
+          text = p.read_text()
+          old = 'reviewed,proteome,lineage'
+          new = 'reviewed,xref_proteomes,lineage'
+          if old not in text:
+              raise SystemExit('Expected UniProt fields string not found')
+          p.write_text(text.replace(old, new))
+          PY
           python -m py_compile research/andalucia_aas_screen_standalone.py
           sha256sum research/andalucia_aas_screen_standalone.py > analysis_source_sha256.txt
       - name: Install dependencies
