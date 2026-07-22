@@ -1,0 +1,84 @@
+name: Proto-mito ATP23 inactive-hit recovery and profile nulls
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  recover-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install HMMER and Python dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq hmmer
+          pip install --disable-pip-version-check requests==2.32.4 biopython==1.85 numpy==2.2.6
+
+      - name: Retrieve the versioned profile-null implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin proto-mito-ndufa2-atp23-20260722
+          git show FETCH_HEAD:proto_mito/scripts/profile_order_null.py > proto_mito/scripts/profile_order_null.py
+          python -m py_compile proto_mito/scripts/profile_order_null.py
+
+      - name: Download checksum-verified selected mLECA alignments
+        uses: actions/download-artifact@v4
+        with:
+          name: proto-mito-selected-profile-alignments
+          path: selected_profiles
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 29923016039
+
+      - name: Recover all four historical ATP23 candidates and source provenance
+        run: python proto_mito/scripts/recover_inactive_atp23.py
+
+      - name: Test the natural ATP23 mLECA profile against 3,000 order/composition nulls
+        shell: bash
+        run: |
+          set -euo pipefail
+          alignment='selected_profiles/mLECA_OGs/alignments_trim/TOLDBA/OGA0001337.metalign.trim'
+          targets='proto_mito_results/atp23_uniparc/atp23_targets.fasta'
+          test -s "$alignment"
+          test "$(grep -c '^>' "$targets")" -eq 4
+          python proto_mito/scripts/profile_order_null.py \
+            --label ATP23_UniParc \
+            --alignment "$alignment" \
+            --targets "$targets" \
+            --accessions 'A0A202DQE6,A0A202DNV3,A0A202DMW5,A0A202DQA8' \
+            --permutations 1000
+
+      - name: Record exact checksums and environment
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p proto_mito_results/atp23_uniparc proto_mito_results/profile_nulls/ATP23_UniParc
+          python --version > proto_mito_results/atp23_uniparc/software_versions.txt
+          pip freeze >> proto_mito_results/atp23_uniparc/software_versions.txt
+          (hmmbuild -h | head -3) >> proto_mito_results/atp23_uniparc/software_versions.txt
+          sha256sum proto_mito/scripts/recover_inactive_atp23.py proto_mito/scripts/profile_order_null.py >> proto_mito_results/atp23_uniparc/software_versions.txt
+          find proto_mito_results/atp23_uniparc -type f -exec sha256sum {} + | sort > proto_mito_results/atp23_uniparc/SHA256SUMS.txt
+          find proto_mito_results/profile_nulls/ATP23_UniParc -type f -exec sha256sum {} + | sort > proto_mito_results/profile_nulls/ATP23_UniParc/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proto-mito-atp23-uniparc-validation
+          path: |
+            proto_mito_results/atp23_uniparc
+            proto_mito_results/profile_nulls/ATP23_UniParc
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 7
