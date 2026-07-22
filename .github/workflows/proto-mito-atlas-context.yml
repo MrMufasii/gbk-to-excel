@@ -1,0 +1,39 @@
+name: Proto-mito Atlas taxonomy context
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  atlas-context:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install client dependency
+        run: pip install --disable-pip-version-check requests==2.32.4
+      - name: Resolve all candidate proteins and clusters
+        run: python proto_mito/scripts/enrich_atlas_hashes.py
+      - name: Record checksums and environment
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p proto_mito_results/atlas_context
+          python --version > proto_mito_results/atlas_context/software_versions.txt
+          pip freeze >> proto_mito_results/atlas_context/software_versions.txt
+          sha256sum proto_mito/scripts/enrich_atlas_hashes.py proto_mito/input/atlas_hit_hashes.txt >> proto_mito_results/atlas_context/software_versions.txt
+          find proto_mito_results/atlas_context -type f -exec sha256sum {} + | sort > proto_mito_results/atlas_context/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proto-mito-atlas-context-public-runner
+          path: proto_mito_results/atlas_context
+          if-no-files-found: error
+          retention-days: 7
