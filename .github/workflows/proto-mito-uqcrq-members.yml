@@ -1,0 +1,53 @@
+name: Proto-mito UQCRQ mixed-cluster member audit
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-members:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check requests==2.32.4
+      - name: Apply validated Atlas API lower-bound correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('proto_mito/scripts/resolve_uqcrq_cluster_members.py')
+          text = path.read_text()
+          old = '"topk_features": 0'
+          new = '"topk_features": 1'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one API parameter to patch, found {text.count(old)}')
+          path.write_text(text.replace(old, new))
+          PY
+          grep -n 'topk_features' proto_mito/scripts/resolve_uqcrq_cluster_members.py
+      - name: Resolve every mixed-cluster member through Atlas, UniParc and UniProt taxonomy
+        run: python proto_mito/scripts/resolve_uqcrq_cluster_members.py
+      - name: Record exact checksums and environment
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p proto_mito_results/uqcrq_cluster_members
+          python --version > proto_mito_results/uqcrq_cluster_members/software_versions.txt
+          pip freeze >> proto_mito_results/uqcrq_cluster_members/software_versions.txt
+          sha256sum proto_mito/scripts/resolve_uqcrq_cluster_members.py >> proto_mito_results/uqcrq_cluster_members/software_versions.txt
+          find proto_mito_results/uqcrq_cluster_members -type f -exec sha256sum {} + | sort > proto_mito_results/uqcrq_cluster_members/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proto-mito-uqcrq-mixed-cluster-member-audit
+          path: proto_mito_results/uqcrq_cluster_members
+          if-no-files-found: error
+          retention-days: 7
