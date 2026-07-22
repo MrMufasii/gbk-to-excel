@@ -1,0 +1,86 @@
+name: frozen-ANDGO06383-specificity
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [agent/protomito-compute]
+    paths:
+      - protomito/validate_06383.py
+      - .github/workflows/protomito-06383.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install analysis software
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y hmmer curl gzip
+          python -m pip install --upgrade pip
+          python -m pip install openpyxl
+      - name: Retrieve source workbook
+        run: |
+          mkdir -p inputs results/ANDGO06383_DLH/hmmer
+          curl --fail --location --retry 8 --retry-delay 10 --max-time 3600 \
+            'https://static-content.springer.com/esm/art%3A10.1186%2Fs12915-020-0741-6/MediaObjects/12915_2020_741_MOESM1_ESM.xlsx' \
+            -o inputs/Gray_2020_MOESM1.xlsx
+          sha256sum inputs/Gray_2020_MOESM1.xlsx > results/ANDGO06383_DLH/input_checksums.sha256
+      - name: Prepare candidate, panel and frozen nulls
+        run: python protomito/validate_06383.py prepare --workbook inputs/Gray_2020_MOESM1.xlsx --nulls 5000
+      - name: Retrieve independent Pfam profiles and search
+        run: |
+          set -euo pipefail
+          declare -A PFAMS=(
+            [PF01738_DLH]=PF01738
+            [PF00561_Abhydrolase1]=PF00561
+            [PF07859_Abhydrolase3]=PF07859
+            [PF12697_Abhydrolase6]=PF12697
+            [PF01083_Cutinase]=PF01083
+            [PF00756_Esterase]=PF00756
+            [PF03959_FSH1]=PF03959
+            [PF12146_Hydrolase4]=PF12146
+            [PF07224_Chlorophyllase]=PF07224
+          )
+          for label in "${!PFAMS[@]}"; do
+            accession="${PFAMS[$label]}"
+            curl --fail --location --retry 8 --retry-delay 10 --max-time 1800 \
+              "https://www.ebi.ac.uk/interpro/wwwapi//entry/pfam/${accession}?annotation=hmm" \
+              -o "results/ANDGO06383_DLH/hmmer/${label}.hmm.gz"
+            gzip -dc "results/ANDGO06383_DLH/hmmer/${label}.hmm.gz" \
+              > "results/ANDGO06383_DLH/hmmer/${label}.hmm"
+            for target in candidate panel nulls; do
+              case "$target" in
+                candidate) fasta=results/ANDGO06383_DLH/candidate_queries.faa ;;
+                panel) fasta=results/ANDGO06383_DLH/mitochondrial_panel.faa ;;
+                nulls) fasta=results/ANDGO06383_DLH/candidate_nulls.faa ;;
+              esac
+              hmmsearch --cpu 2 --max -E 1000000000 --domE 1000000000 \
+                --tblout "results/ANDGO06383_DLH/hmmer/${label}.${target}.tbl" \
+                "results/ANDGO06383_DLH/hmmer/${label}.hmm" "$fasta" \
+                > "results/ANDGO06383_DLH/hmmer/${label}.${target}.txt"
+            done
+          done
+      - name: Apply preregistered decision gates
+        run: python protomito/validate_06383.py summarize | tee results/ANDGO06383_DLH/decision.log
+      - name: Record versions and checksums
+        if: always()
+        run: |
+          (hmmsearch -h | head -4; python --version) > results/ANDGO06383_DLH/software_versions.txt 2>&1
+          rm -f results/ANDGO06383_DLH/hmmer/*.hmm.gz
+          find results/ANDGO06383_DLH -type f ! -name SHA256SUMS.txt -print0 \
+            | sort -z | xargs -0 sha256sum > results/ANDGO06383_DLH/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ANDGO06383-independent-DLH-validation
+          path: results/ANDGO06383_DLH
+          retention-days: 30
+          if-no-files-found: error
