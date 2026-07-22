@@ -7,6 +7,11 @@ on:
     paths:
       - protomito/validate_06383.py
       - .github/workflows/protomito-06383.yml
+  pull_request:
+    branches: [master]
+    paths:
+      - protomito/validate_06383.py
+      - .github/workflows/protomito-06383.yml
 
 permissions:
   contents: read
