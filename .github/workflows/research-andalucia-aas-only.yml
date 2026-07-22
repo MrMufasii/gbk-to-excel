@@ -1,0 +1,72 @@
+name: Research - isolated whole-mitoproteome Aas screen
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Retrieve checksum-pinned analysis code
+        run: |
+          mkdir -p research scripts inputs
+          base='https://raw.githubusercontent.com/MrMufasii/gbk-to-excel/be04dc8b1e3b8dc9d74128151f22e2c7ef76eb36'
+          curl -fL --retry 8 "$base/research/aas_module_strengthening.py.gz.b64" -o research/aas_module_strengthening.py.gz.b64
+          curl -fL --retry 8 "$base/research/patch_aas_analysis.py" -o research/patch_aas_analysis.py
+          curl -fL --retry 8 "$base/research/andalucia_aas_specific_screen.py" -o research/andalucia_aas_specific_screen.py
+          base64 -d research/aas_module_strengthening.py.gz.b64 | gzip -dc > scripts/aas_module_strengthening.py
+          python research/patch_aas_analysis.py
+          python -m py_compile scripts/aas_module_strengthening.py research/andalucia_aas_specific_screen.py
+          sha256sum research/* scripts/aas_module_strengthening.py > analysis_source_sha256.txt
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mafft hmmer
+          pip install --disable-pip-version-check numpy==2.2.6 pandas==2.3.1 requests==2.32.4 biopython==1.85 openpyxl==3.1.5
+      - name: Download published Andalucia mitoproteome workbook
+        run: |
+          curl -fL --retry 10 --retry-all-errors \
+            'https://static-content.springer.com/esm/art%3A10.1186%2Fs12915-020-0741-6/MediaObjects/12915_2020_741_MOESM1_ESM.xlsx' \
+            -o inputs/Andalucia_TableS1.xlsx
+          test $(stat -c%s inputs/Andalucia_TableS1.xlsx) -gt 500000
+          sha256sum inputs/Andalucia_TableS1.xlsx > source_sha256.txt
+      - name: Search all mitochondrial proteins with Aas and decoy profiles
+        id: analysis
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python research/andalucia_aas_specific_screen.py 2>&1 | tee andalucia_aas_specific_screen.log
+      - name: Preserve diagnostics and exact provenance
+        if: always()
+        run: |
+          mkdir -p results/andalucia_aas_specific_screen
+          cp andalucia_aas_specific_screen.log results/andalucia_aas_specific_screen/run.log 2>/dev/null || true
+          cp research/andalucia_aas_specific_screen.py results/andalucia_aas_specific_screen/executed_screen.py
+          cp scripts/aas_module_strengthening.py results/andalucia_aas_specific_screen/executed_shared_analysis.py
+          cp source_sha256.txt analysis_source_sha256.txt results/andalucia_aas_specific_screen/ 2>/dev/null || true
+          rm -rf results/andalucia_aas_specific_screen/work
+          python --version > results/andalucia_aas_specific_screen/environment.txt
+          (hmmsearch -h 2>&1 | head -3 || true) >> results/andalucia_aas_specific_screen/environment.txt
+          pip freeze >> results/andalucia_aas_specific_screen/environment.txt
+          find results/andalucia_aas_specific_screen -type f -exec sha256sum {} + | sort > results/andalucia_aas_specific_screen/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: andalucia-whole-mitoproteome-Aas-specificity
+          path: results/andalucia_aas_specific_screen/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Fail after preserving diagnostics
+        if: steps.analysis.outcome == 'failure'
+        run: exit 1
