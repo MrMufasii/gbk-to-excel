@@ -1,0 +1,59 @@
+name: Research - fast Aas profile specificity
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  profile-specificity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Decode and patch analysis
+        run: |
+          mkdir -p scripts
+          base64 -d research/aas_module_strengthening.py.gz.b64 | gzip -dc > scripts/aas_module_strengthening.py
+          python research/patch_aas_analysis.py
+          python -m py_compile scripts/aas_module_strengthening.py research/run_aas_profile_fast.py
+      - name: Install profile dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mafft hmmer
+          pip install --disable-pip-version-check numpy==2.2.6 pandas==2.3.1 requests==2.32.4 biopython==1.85
+      - name: Run held-out profiles, composition nulls and reciprocal tests
+        id: analysis
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python research/run_aas_profile_fast.py 2>&1 | tee aas_profile_fast.log
+      - name: Preserve exact diagnostics
+        if: always()
+        run: |
+          mkdir -p results/aas_profile_fast
+          cp aas_profile_fast.log results/aas_profile_fast/run.log 2>/dev/null || true
+          cp scripts/aas_module_strengthening.py results/aas_profile_fast/executed_analysis.py
+          python --version > results/aas_profile_fast/environment.txt
+          (mafft --version 2>&1 || true) >> results/aas_profile_fast/environment.txt
+          (hmmsearch -h 2>&1 | head -3 || true) >> results/aas_profile_fast/environment.txt
+          pip freeze >> results/aas_profile_fast/environment.txt
+          sha256sum scripts/aas_module_strengthening.py research/patch_aas_analysis.py research/run_aas_profile_fast.py >> results/aas_profile_fast/environment.txt
+          find results/aas_profile_fast -type f -exec sha256sum {} + | sort > results/aas_profile_fast/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aas-profile-specificity-fast
+          path: results/aas_profile_fast/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Fail after preserving diagnostics
+        if: steps.analysis.outcome == 'failure'
+        run: exit 1

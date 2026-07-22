@@ -1,0 +1,47 @@
+name: Research - annotate Alphaproteobacterial fused Aas candidates
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check requests==2.32.4
+      - name: Resolve names, genes, lineages and domain cross-references
+        id: analysis
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python research/aas_alpha_fused_metadata.py 2>&1 | tee aas_alpha_fused_metadata.log
+      - name: Preserve diagnostics and checksums
+        if: always()
+        run: |
+          mkdir -p results/aas_alpha_fused_metadata
+          cp aas_alpha_fused_metadata.log results/aas_alpha_fused_metadata/run.log 2>/dev/null || true
+          cp research/aas_alpha_fused_metadata.py results/aas_alpha_fused_metadata/executed_analysis.py
+          python --version > results/aas_alpha_fused_metadata/environment.txt
+          pip freeze >> results/aas_alpha_fused_metadata/environment.txt
+          sha256sum research/aas_alpha_fused_metadata.py >> results/aas_alpha_fused_metadata/environment.txt
+          find results/aas_alpha_fused_metadata -type f -exec sha256sum {} + | sort > results/aas_alpha_fused_metadata/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aas-alpha-fused-metadata
+          path: results/aas_alpha_fused_metadata/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Fail after preserving diagnostics
+        if: steps.analysis.outcome == 'failure'
+        run: exit 1
