@@ -17,44 +17,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Retrieve checksum-pinned analysis code and correct the split-Aas gate
+      - name: Validate self-contained analysis
         run: |
-          mkdir -p research scripts inputs
-          base='https://raw.githubusercontent.com/MrMufasii/gbk-to-excel/be04dc8b1e3b8dc9d74128151f22e2c7ef76eb36'
-          curl -fL --retry 8 "$base/research/aas_module_strengthening.py.gz.b64" -o research/aas_module_strengthening.py.gz.b64
-          curl -fL --retry 8 "$base/research/patch_aas_analysis.py" -o research/patch_aas_analysis.py
-          curl -fL --retry 8 "$base/research/andalucia_aas_specific_screen.py" -o research/andalucia_aas_specific_screen.py
-          base64 -d research/aas_module_strengthening.py.gz.b64 | gzip -dc > scripts/aas_module_strengthening.py
-          python research/patch_aas_analysis.py
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('research/andalucia_aas_specific_screen.py')
-          text = p.read_text()
-          text = text.replace(
-              '    table["N_Aas_specific_margin"] = table["AasN"] - table[["LpaT", "PlsC", "PlsB"]].max(axis=1)\n',
-              '    table["N_Aas_specific_score"] = table[["AasN", "LpaT"]].max(axis=1)\n'
-              '    table["N_Aas_specific_margin"] = table["N_Aas_specific_score"] - table[["PlsC", "PlsB"]].max(axis=1)\n',
-          )
-          text = text.replace(
-              '    table["N_provisional"] = table["AasN"].ge(20) & table["N_Aas_specific_margin"].ge(8)\n',
-              '    table["N_provisional"] = table["N_Aas_specific_score"].ge(20) & table["N_Aas_specific_margin"].ge(8)\n',
-          )
-          text = text.replace(
-              '            target = score_maps["AasN"].get(name, -50.0)\n'
-              '            margin = target - max(score_maps[label].get(name, -50.0) for label in ["LpaT", "PlsC", "PlsB"])\n',
-              '            target = max(score_maps[label].get(name, -50.0) for label in ["AasN", "LpaT"])\n'
-              '            margin = target - max(score_maps[label].get(name, -50.0) for label in ["PlsC", "PlsB"])\n',
-          )
-          text = text.replace(
-              '[["query", "annotation", "AasN", "N_best_class", "N_best_score", "N_Aas_specific_margin"]]',
-              '[["query", "annotation", "N_Aas_specific_score", "N_best_class", "N_best_score", "N_Aas_specific_margin"]]',
-          )
-          if 'N_Aas_specific_score' not in text:
-              raise SystemExit('split-Aas gate patch failed')
-          p.write_text(text)
-          PY
-          python -m py_compile scripts/aas_module_strengthening.py research/andalucia_aas_specific_screen.py
-          sha256sum research/* scripts/aas_module_strengthening.py > analysis_source_sha256.txt
+          mkdir -p inputs
+          python -m py_compile research/andalucia_aas_screen_standalone.py
+          sha256sum research/andalucia_aas_screen_standalone.py > analysis_source_sha256.txt
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -73,17 +40,17 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python research/andalucia_aas_specific_screen.py 2>&1 | tee andalucia_aas_specific_screen.log
+          python research/andalucia_aas_screen_standalone.py 2>&1 | tee andalucia_aas_specific_screen.log
       - name: Preserve diagnostics and exact provenance
         if: always()
         run: |
           mkdir -p results/andalucia_aas_specific_screen
           cp andalucia_aas_specific_screen.log results/andalucia_aas_specific_screen/run.log 2>/dev/null || true
-          cp research/andalucia_aas_specific_screen.py results/andalucia_aas_specific_screen/executed_screen.py
-          cp scripts/aas_module_strengthening.py results/andalucia_aas_specific_screen/executed_shared_analysis.py
+          cp research/andalucia_aas_screen_standalone.py results/andalucia_aas_specific_screen/executed_screen.py
           cp source_sha256.txt analysis_source_sha256.txt results/andalucia_aas_specific_screen/ 2>/dev/null || true
           rm -rf results/andalucia_aas_specific_screen/work
           python --version > results/andalucia_aas_specific_screen/environment.txt
+          (mafft --version 2>&1 || true) >> results/andalucia_aas_specific_screen/environment.txt
           (hmmsearch -h 2>&1 | head -3 || true) >> results/andalucia_aas_specific_screen/environment.txt
           pip freeze >> results/andalucia_aas_specific_screen/environment.txt
           find results/andalucia_aas_specific_screen -type f -exec sha256sum {} + | sort > results/andalucia_aas_specific_screen/SHA256SUMS.txt
