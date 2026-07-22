@@ -1,0 +1,32 @@
+name: Proto-mito HMMER pagination probe
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check requests==2.32.4
+      - run: python proto_mito/scripts/probe_hmmer_pagination.py
+      - if: always()
+        run: |
+          mkdir -p proto_mito_results/hmmer_pagination_probe
+          find proto_mito_results/hmmer_pagination_probe -type f -exec sha256sum {} + | sort > proto_mito_results/hmmer_pagination_probe/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proto-mito-hmmer-pagination-probe
+          path: proto_mito_results/hmmer_pagination_probe
+          if-no-files-found: error
+          retention-days: 7
