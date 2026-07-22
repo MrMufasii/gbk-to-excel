@@ -18,6 +18,21 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install --disable-pip-version-check requests==2.32.4
+      - name: Apply validated Atlas API lower-bound correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('proto_mito/scripts/resolve_uqcrq_cluster_members.py')
+          text = path.read_text()
+          old = '"topk_features": 0'
+          new = '"topk_features": 1'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one API parameter to patch, found {text.count(old)}')
+          path.write_text(text.replace(old, new))
+          PY
+          grep -n 'topk_features' proto_mito/scripts/resolve_uqcrq_cluster_members.py
       - name: Resolve every mixed-cluster member through Atlas, UniParc and UniProt taxonomy
         run: python proto_mito/scripts/resolve_uqcrq_cluster_members.py
       - name: Record exact checksums and environment
