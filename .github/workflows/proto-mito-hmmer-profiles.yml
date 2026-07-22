@@ -1,0 +1,162 @@
+name: Proto-mito orthogonal HMMER profile validation
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZENODO_BASE: https://zenodo.org/records/13897946/files
+
+jobs:
+  prepare-profiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install parallel downloader
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2
+      - name: Download checksum-versioned mLECA archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p downloads selected_profiles
+          aria2c --console-log-level=notice --summary-interval=30 \
+            --max-connection-per-server=16 --split=16 --min-split-size=16M \
+            --file-allocation=none --retry-wait=3 --max-tries=20 \
+            -d downloads -o mLECA_OGs.tar.gz \
+            "$ZENODO_BASE/mLECA_OGs.tar.gz?download=1"
+          echo 'ef70ed02a5e3671da8275812c9277edd  downloads/mLECA_OGs.tar.gz' | md5sum -c -
+      - name: Extract preregistered profile panel
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > selected_members.txt <<'EOF'
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0006231.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBB/OGB0007321.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBC/OGC0006364.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0012053.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBC/OGC0009468.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0002602.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBB/OGB0002633.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBC/OGC0002401.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0003627.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0004703.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0004921_1.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0002544.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0001337.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0000778_1.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0004353.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0010739.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0003251_1.metalign.trim
+          mLECA_OGs/alignments_trim/TOLDBA/OGA0000444_1.metalign.trim
+          EOF
+          sed -i 's/^          //' selected_members.txt
+          tar -xzf downloads/mLECA_OGs.tar.gz -C selected_profiles -T selected_members.txt
+          test "$(find selected_profiles -type f | wc -l)" -eq 18
+          find selected_profiles -type f -exec sha256sum {} + | sort > selected_profiles/SHA256SUMS.txt
+          cp selected_members.txt selected_profiles/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proto-mito-selected-profile-alignments
+          path: selected_profiles
+          if-no-files-found: error
+          compression-level: 9
+          retention-days: 7
+
+  search-profile:
+    needs: prepare-profiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - {label: MRPL35_A, ko: K17439, db: TOLDBA, family: OGA0006231}
+          - {label: MRPL35_B, ko: K17439, db: TOLDBB, family: OGB0007321}
+          - {label: MRPL35_C, ko: K17439, db: TOLDBC, family: OGC0006364}
+          - {label: UQCRQ_A, ko: K00418, db: TOLDBA, family: OGA0012053}
+          - {label: UQCRQ_C, ko: K00418, db: TOLDBC, family: OGC0009468}
+          - {label: QCR7_A, ko: K00417, db: TOLDBA, family: OGA0002602}
+          - {label: QCR7_B, ko: K00417, db: TOLDBB, family: OGB0002633}
+          - {label: QCR7_C, ko: K00417, db: TOLDBC, family: OGC0002401}
+          - {label: QCR6_A, ko: K00416, db: TOLDBA, family: OGA0003627}
+          - {label: QCR9_A, ko: K00419, db: TOLDBA, family: OGA0004703}
+          - {label: COX17_A, ko: K02260, db: TOLDBA, family: OGA0004921_1}
+          - {label: NDUFA2_A, ko: K03946, db: TOLDBA, family: OGA0002544}
+          - {label: ATP23_A, ko: K18156, db: TOLDBA, family: OGA0001337}
+          - {label: MPC2_A, ko: K22139, db: TOLDBA, family: OGA0000778_1}
+          - {label: ATP5H_d_A, ko: K02138, db: TOLDBA, family: OGA0004353}
+          - {label: MRPS23_A, ko: K17402, db: TOLDBA, family: OGA0010739}
+          - {label: MRPL41_A, ko: K17422, db: TOLDBA, family: OGA0003251_1}
+          - {label: COX19_A, ko: K18183, db: TOLDBA, family: OGA0000444_1}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check requests==2.32.4
+      - uses: actions/download-artifact@v4
+        with:
+          name: proto-mito-selected-profile-alignments
+          path: selected_profiles
+      - name: Search current UniProt reference proteomes with profile HMM
+        shell: bash
+        run: |
+          set -euo pipefail
+          alignment="selected_profiles/mLECA_OGs/alignments_trim/${{ matrix.db }}/${{ matrix.family }}.metalign.trim"
+          test -s "$alignment"
+          python proto_mito/scripts/run_hmmer_profile.py \
+            --label '${{ matrix.label }}' \
+            --ko '${{ matrix.ko }}' \
+            --db '${{ matrix.db }}' \
+            --family '${{ matrix.family }}' \
+            --alignment "$alignment"
+      - name: Record exact checksums and environment
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "proto_mito_results/hmmer/${{ matrix.label }}"
+          python --version > "proto_mito_results/hmmer/${{ matrix.label }}/software_versions.txt"
+          pip freeze >> "proto_mito_results/hmmer/${{ matrix.label }}/software_versions.txt"
+          sha256sum proto_mito/scripts/run_hmmer_profile.py >> "proto_mito_results/hmmer/${{ matrix.label }}/software_versions.txt"
+          find "proto_mito_results/hmmer/${{ matrix.label }}" -type f -exec sha256sum {} + | sort > "proto_mito_results/hmmer/${{ matrix.label }}/SHA256SUMS.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proto-mito-hmmer-profile-${{ matrix.label }}
+          path: proto_mito_results/hmmer/${{ matrix.label }}
+          if-no-files-found: error
+          retention-days: 7
+
+  aggregate:
+    if: always()
+    needs: search-profile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: proto-mito-hmmer-profile-*
+          path: downloaded_hmmer
+      - name: Aggregate and enforce complete panel
+        run: python proto_mito/scripts/aggregate_hmmer_profiles.py
+      - name: Record aggregate checksums
+        if: always()
+        run: find proto_mito_results/hmmer_aggregate -type f -exec sha256sum {} + | sort > proto_mito_results/hmmer_aggregate/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proto-mito-hmmer-profile-aggregate
+          path: proto_mito_results/hmmer_aggregate
+          if-no-files-found: error
+          retention-days: 7
