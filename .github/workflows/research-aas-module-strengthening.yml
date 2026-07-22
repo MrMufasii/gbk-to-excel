@@ -17,10 +17,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Decode analysis script
+      - name: Decode and patch analysis script
         run: |
           mkdir -p scripts
           base64 -d research/aas_module_strengthening.py.gz.b64 | gzip -dc > scripts/aas_module_strengthening.py
+          python research/patch_aas_analysis.py
           python -m py_compile scripts/aas_module_strengthening.py
       - name: Install dependencies
         run: |
@@ -31,18 +32,19 @@ jobs:
       - name: Test Aas specificity against enzyme-family decoys
         id: analysis
         continue-on-error: true
-        run: python scripts/aas_module_strengthening.py domain --output results/aas_domain_specificity
+        run: python scripts/aas_module_strengthening.py domain --output results/aas_domain_specificity 2>&1 | tee results/aas_domain_specificity.run.log
       - name: Record environment and checksums
         if: always()
         run: |
           mkdir -p results/aas_domain_specificity
           cp scripts/aas_module_strengthening.py results/aas_domain_specificity/executed_analysis.py
+          cp results/aas_domain_specificity.run.log results/aas_domain_specificity/run.log 2>/dev/null || true
           python --version > results/aas_domain_specificity/environment.txt
           (mafft --version 2>&1 || true) >> results/aas_domain_specificity/environment.txt
           (hmmbuild -h 2>&1 | head -3 || true) >> results/aas_domain_specificity/environment.txt
           (iqtree2 --version 2>&1 || iqtree --version 2>&1 || true) >> results/aas_domain_specificity/environment.txt
           pip freeze >> results/aas_domain_specificity/environment.txt
-          sha256sum scripts/aas_module_strengthening.py primary_inputs_text/andallucia_mitoproteome_TableS1__G_GENERAL_METABOLISM.tsv >> results/aas_domain_specificity/environment.txt
+          sha256sum scripts/aas_module_strengthening.py research/patch_aas_analysis.py primary_inputs_text/andallucia_mitoproteome_TableS1__G_GENERAL_METABOLISM.tsv >> results/aas_domain_specificity/environment.txt
           find results/aas_domain_specificity -type f -exec sha256sum {} + | sort > results/aas_domain_specificity/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         if: always()
@@ -63,10 +65,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Decode analysis script
+      - name: Decode and patch analysis script
         run: |
           mkdir -p scripts
           base64 -d research/aas_module_strengthening.py.gz.b64 | gzip -dc > scripts/aas_module_strengthening.py
+          python research/patch_aas_analysis.py
           python -m py_compile scripts/aas_module_strengthening.py
       - name: Install dependencies
         run: |
@@ -76,16 +79,17 @@ jobs:
       - name: Survey fused and split Aas architectures
         id: analysis
         continue-on-error: true
-        run: python scripts/aas_module_strengthening.py taxonomy --output results/aas_taxonomic_architecture
+        run: python scripts/aas_module_strengthening.py taxonomy --output results/aas_taxonomic_architecture 2>&1 | tee results/aas_taxonomic_architecture.run.log
       - name: Record environment and checksums
         if: always()
         run: |
           mkdir -p results/aas_taxonomic_architecture
           cp scripts/aas_module_strengthening.py results/aas_taxonomic_architecture/executed_analysis.py
+          cp results/aas_taxonomic_architecture.run.log results/aas_taxonomic_architecture/run.log 2>/dev/null || true
           python --version > results/aas_taxonomic_architecture/environment.txt
           (hmmbuild -h 2>&1 | head -3 || true) >> results/aas_taxonomic_architecture/environment.txt
           pip freeze >> results/aas_taxonomic_architecture/environment.txt
-          sha256sum scripts/aas_module_strengthening.py >> results/aas_taxonomic_architecture/environment.txt
+          sha256sum scripts/aas_module_strengthening.py research/patch_aas_analysis.py >> results/aas_taxonomic_architecture/environment.txt
           find results/aas_taxonomic_architecture -type f -exec sha256sum {} + | sort > results/aas_taxonomic_architecture/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         if: always()
@@ -106,10 +110,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Decode analysis script
+      - name: Decode and patch analysis script
         run: |
           mkdir -p scripts
           base64 -d research/aas_module_strengthening.py.gz.b64 | gzip -dc > scripts/aas_module_strengthening.py
+          python research/patch_aas_analysis.py
           python -m py_compile scripts/aas_module_strengthening.py
       - name: Install Python and Foldseek
         run: |
@@ -123,16 +128,17 @@ jobs:
       - name: Compare intended modules against structural decoys
         id: analysis
         continue-on-error: true
-        run: python scripts/aas_module_strengthening.py structure --output results/aas_structural_specificity
+        run: python scripts/aas_module_strengthening.py structure --output results/aas_structural_specificity 2>&1 | tee results/aas_structural_specificity.run.log
       - name: Record environment and checksums
         if: always()
         run: |
           mkdir -p results/aas_structural_specificity
           cp scripts/aas_module_strengthening.py results/aas_structural_specificity/executed_analysis.py
+          cp results/aas_structural_specificity.run.log results/aas_structural_specificity/run.log 2>/dev/null || true
           python --version > results/aas_structural_specificity/environment.txt
           (foldseek version || true) >> results/aas_structural_specificity/environment.txt
           pip freeze >> results/aas_structural_specificity/environment.txt
-          sha256sum scripts/aas_module_strengthening.py primary_inputs_text/andallucia_mitoproteome_TableS1__G_GENERAL_METABOLISM.tsv >> results/aas_structural_specificity/environment.txt
+          sha256sum scripts/aas_module_strengthening.py research/patch_aas_analysis.py primary_inputs_text/andallucia_mitoproteome_TableS1__G_GENERAL_METABOLISM.tsv >> results/aas_structural_specificity/environment.txt
           find results/aas_structural_specificity -type f -exec sha256sum {} + | sort > results/aas_structural_specificity/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         if: always()
