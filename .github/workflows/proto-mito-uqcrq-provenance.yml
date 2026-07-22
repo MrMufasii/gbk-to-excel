@@ -1,0 +1,38 @@
+name: Proto-mito UQCRQ non-eukaryotic provenance audit
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check requests==2.32.4 biopython==1.85
+      - name: Retrieve source protein, parent contig, assembly links and 30-kb gene neighbourhoods
+        run: python proto_mito/scripts/audit_uqcrq_prokaryotic_provenance.py
+      - name: Record exact checksums and environment
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p proto_mito_results/uqcrq_prokaryotic_provenance
+          python --version > proto_mito_results/uqcrq_prokaryotic_provenance/software_versions.txt
+          pip freeze >> proto_mito_results/uqcrq_prokaryotic_provenance/software_versions.txt
+          sha256sum proto_mito/scripts/audit_uqcrq_prokaryotic_provenance.py >> proto_mito_results/uqcrq_prokaryotic_provenance/software_versions.txt
+          find proto_mito_results/uqcrq_prokaryotic_provenance -type f -exec sha256sum {} + | sort > proto_mito_results/uqcrq_prokaryotic_provenance/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proto-mito-uqcrq-prokaryotic-provenance
+          path: proto_mito_results/uqcrq_prokaryotic_provenance
+          if-no-files-found: error
+          retention-days: 7
