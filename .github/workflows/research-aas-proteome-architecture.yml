@@ -1,0 +1,61 @@
+name: Research - Aas proteome architecture survey
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  architecture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Decode and patch shared analysis
+        run: |
+          mkdir -p scripts
+          base64 -d research/aas_module_strengthening.py.gz.b64 | gzip -dc > scripts/aas_module_strengthening.py
+          python research/patch_aas_analysis.py
+          python -m py_compile scripts/aas_module_strengthening.py research/aas_proteome_architecture.py
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mafft hmmer
+          pip install --disable-pip-version-check numpy==2.2.6 pandas==2.3.1 requests==2.32.4 biopython==1.85
+      - name: Search complete representative proteomes with four independent profiles
+        id: analysis
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python research/aas_proteome_architecture.py 2>&1 | tee aas_proteome_architecture.log
+      - name: Preserve exact diagnostics and remove downloaded proteomes
+        if: always()
+        run: |
+          mkdir -p results/aas_proteome_architecture
+          cp aas_proteome_architecture.log results/aas_proteome_architecture/run.log 2>/dev/null || true
+          cp research/aas_proteome_architecture.py results/aas_proteome_architecture/executed_proteome_analysis.py
+          cp scripts/aas_module_strengthening.py results/aas_proteome_architecture/executed_shared_analysis.py
+          rm -rf results/aas_proteome_architecture/work
+          find results/aas_proteome_architecture -type f -size +100M -delete
+          python --version > results/aas_proteome_architecture/environment.txt
+          (hmmsearch -h 2>&1 | head -3 || true) >> results/aas_proteome_architecture/environment.txt
+          pip freeze >> results/aas_proteome_architecture/environment.txt
+          sha256sum research/aas_proteome_architecture.py scripts/aas_module_strengthening.py research/patch_aas_analysis.py >> results/aas_proteome_architecture/environment.txt
+          find results/aas_proteome_architecture -type f -exec sha256sum {} + | sort > results/aas_proteome_architecture/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aas-proteome-architecture
+          path: results/aas_proteome_architecture/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Fail after preserving diagnostics
+        if: steps.analysis.outcome == 'failure'
+        run: exit 1
