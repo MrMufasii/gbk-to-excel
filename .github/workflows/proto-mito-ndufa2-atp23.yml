@@ -1,0 +1,117 @@
+name: Proto-mito NDUFA2 and ATP23 candidate validation
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check requests==2.32.4 biopython==1.85
+      - name: Download checksum-verified selected mLECA alignments
+        uses: actions/download-artifact@v4
+        with:
+          name: proto-mito-selected-profile-alignments
+          path: selected_profiles
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 29923016039
+      - name: Build current UniProt panels, provenance and Atlas structures
+        run: python proto_mito/scripts/build_candidate_panels.py
+      - name: Record exact checksums and environment
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p proto_mito_results/candidate_panels
+          python --version > proto_mito_results/candidate_panels/software_versions.txt
+          pip freeze >> proto_mito_results/candidate_panels/software_versions.txt
+          sha256sum proto_mito/scripts/build_candidate_panels.py >> proto_mito_results/candidate_panels/software_versions.txt
+          find proto_mito_results/candidate_panels -type f -exec sha256sum {} + | sort > proto_mito_results/candidate_panels/SHA256SUMS.txt
+          find selected_profiles -type f -exec sha256sum {} + | sort > proto_mito_results/candidate_panels/selected_profile_SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proto-mito-ndufa2-atp23-candidate-panels
+          path: |
+            proto_mito_results/candidate_panels
+            selected_profiles
+          if-no-files-found: error
+          retention-days: 7
+
+  profile-nulls:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - label: NDUFA2
+            family: OGA0002544
+            accessions: A0A5B2VBN4
+            permutations: 1000
+          - label: ATP23
+            family: OGA0001337
+            accessions: A0A202DQE6,A0A202DNV3,A0A202DMW5,A0A202DQA8
+            permutations: 750
+          - label: ATP5H_d_repeat_control
+            family: OGA0004353
+            accessions: A0A656D6G0,A0A2Z5IPW5
+            permutations: 250
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install HMMER and analysis dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq hmmer
+          pip install --disable-pip-version-check numpy==2.2.6 biopython==1.85
+      - uses: actions/download-artifact@v4
+        with:
+          name: proto-mito-ndufa2-atp23-candidate-panels
+          path: input
+      - name: Test natural profile against alignment-order and composition nulls
+        shell: bash
+        run: |
+          set -euo pipefail
+          alignment="input/selected_profiles/mLECA_OGs/alignments_trim/TOLDBA/${{ matrix.family }}.metalign.trim"
+          targets="input/proto_mito_results/candidate_panels/target_candidates.fasta"
+          test -s "$alignment"
+          test -s "$targets"
+          python proto_mito/scripts/profile_order_null.py \
+            --label '${{ matrix.label }}' \
+            --alignment "$alignment" \
+            --targets "$targets" \
+            --accessions '${{ matrix.accessions }}' \
+            --permutations '${{ matrix.permutations }}'
+      - name: Record exact checksums and software
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "proto_mito_results/profile_nulls/${{ matrix.label }}"
+          (hmmbuild -h | head -3) > "proto_mito_results/profile_nulls/${{ matrix.label }}/software_versions.txt"
+          python --version >> "proto_mito_results/profile_nulls/${{ matrix.label }}/software_versions.txt"
+          pip freeze >> "proto_mito_results/profile_nulls/${{ matrix.label }}/software_versions.txt"
+          sha256sum proto_mito/scripts/profile_order_null.py >> "proto_mito_results/profile_nulls/${{ matrix.label }}/software_versions.txt"
+          find "proto_mito_results/profile_nulls/${{ matrix.label }}" -type f -exec sha256sum {} + | sort > "proto_mito_results/profile_nulls/${{ matrix.label }}/SHA256SUMS.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proto-mito-profile-nulls-${{ matrix.label }}
+          path: proto_mito_results/profile_nulls/${{ matrix.label }}
+          if-no-files-found: error
+          retention-days: 7
