@@ -1,12 +1,6 @@
 name: frozen-ANDGO06383-specificity
 
 on:
-  workflow_dispatch:
-  push:
-    branches: [agent/protomito-compute]
-    paths:
-      - protomito/validate_06383.py
-      - .github/workflows/protomito-06383.yml
   pull_request:
     branches: [master]
     paths:
