@@ -1,0 +1,146 @@
+name: Research - strengthen mitochondrial Aas module hypothesis
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  domain-specificity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Decode analysis script
+        run: |
+          mkdir -p scripts
+          base64 -d research/aas_module_strengthening.py.gz.b64 | gzip -dc > scripts/aas_module_strengthening.py
+          python -m py_compile scripts/aas_module_strengthening.py
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mafft hmmer trimal
+          sudo apt-get install -y iqtree || true
+          pip install --disable-pip-version-check numpy==2.2.6 pandas==2.3.1 requests==2.32.4 biopython==1.85
+      - name: Test Aas specificity against enzyme-family decoys
+        id: analysis
+        continue-on-error: true
+        run: python scripts/aas_module_strengthening.py domain --output results/aas_domain_specificity
+      - name: Record environment and checksums
+        if: always()
+        run: |
+          mkdir -p results/aas_domain_specificity
+          cp scripts/aas_module_strengthening.py results/aas_domain_specificity/executed_analysis.py
+          python --version > results/aas_domain_specificity/environment.txt
+          (mafft --version 2>&1 || true) >> results/aas_domain_specificity/environment.txt
+          (hmmbuild -h 2>&1 | head -3 || true) >> results/aas_domain_specificity/environment.txt
+          (iqtree2 --version 2>&1 || iqtree --version 2>&1 || true) >> results/aas_domain_specificity/environment.txt
+          pip freeze >> results/aas_domain_specificity/environment.txt
+          sha256sum scripts/aas_module_strengthening.py primary_inputs_text/andallucia_mitoproteome_TableS1__G_GENERAL_METABOLISM.tsv >> results/aas_domain_specificity/environment.txt
+          find results/aas_domain_specificity -type f -exec sha256sum {} + | sort > results/aas_domain_specificity/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aas-domain-specificity
+          path: results/aas_domain_specificity/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Fail after preserving diagnostics
+        if: steps.analysis.outcome == 'failure'
+        run: exit 1
+
+  taxonomic-architecture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Decode analysis script
+        run: |
+          mkdir -p scripts
+          base64 -d research/aas_module_strengthening.py.gz.b64 | gzip -dc > scripts/aas_module_strengthening.py
+          python -m py_compile scripts/aas_module_strengthening.py
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mafft hmmer
+          pip install --disable-pip-version-check numpy==2.2.6 pandas==2.3.1 requests==2.32.4 biopython==1.85
+      - name: Survey fused and split Aas architectures
+        id: analysis
+        continue-on-error: true
+        run: python scripts/aas_module_strengthening.py taxonomy --output results/aas_taxonomic_architecture
+      - name: Record environment and checksums
+        if: always()
+        run: |
+          mkdir -p results/aas_taxonomic_architecture
+          cp scripts/aas_module_strengthening.py results/aas_taxonomic_architecture/executed_analysis.py
+          python --version > results/aas_taxonomic_architecture/environment.txt
+          (hmmbuild -h 2>&1 | head -3 || true) >> results/aas_taxonomic_architecture/environment.txt
+          pip freeze >> results/aas_taxonomic_architecture/environment.txt
+          sha256sum scripts/aas_module_strengthening.py >> results/aas_taxonomic_architecture/environment.txt
+          find results/aas_taxonomic_architecture -type f -exec sha256sum {} + | sort > results/aas_taxonomic_architecture/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aas-taxonomic-architecture
+          path: results/aas_taxonomic_architecture/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Fail after preserving diagnostics
+        if: steps.analysis.outcome == 'failure'
+        run: exit 1
+
+  structural-specificity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Decode analysis script
+        run: |
+          mkdir -p scripts
+          base64 -d research/aas_module_strengthening.py.gz.b64 | gzip -dc > scripts/aas_module_strengthening.py
+          python -m py_compile scripts/aas_module_strengthening.py
+      - name: Install Python and Foldseek
+        run: |
+          pip install --disable-pip-version-check numpy==2.2.6 pandas==2.3.1 requests==2.32.4 biopython==1.85
+          curl -L --fail --retry 8 --retry-all-errors \
+            https://github.com/steineggerlab/foldseek/releases/download/10-941cd33/foldseek-linux-avx2.tar.gz \
+            -o foldseek-linux-avx2.tar.gz
+          tar -xzf foldseek-linux-avx2.tar.gz
+          echo "$PWD/foldseek/bin" >> "$GITHUB_PATH"
+          "$PWD/foldseek/bin/foldseek" version
+      - name: Compare intended modules against structural decoys
+        id: analysis
+        continue-on-error: true
+        run: python scripts/aas_module_strengthening.py structure --output results/aas_structural_specificity
+      - name: Record environment and checksums
+        if: always()
+        run: |
+          mkdir -p results/aas_structural_specificity
+          cp scripts/aas_module_strengthening.py results/aas_structural_specificity/executed_analysis.py
+          python --version > results/aas_structural_specificity/environment.txt
+          (foldseek version || true) >> results/aas_structural_specificity/environment.txt
+          pip freeze >> results/aas_structural_specificity/environment.txt
+          sha256sum scripts/aas_module_strengthening.py primary_inputs_text/andallucia_mitoproteome_TableS1__G_GENERAL_METABOLISM.tsv >> results/aas_structural_specificity/environment.txt
+          find results/aas_structural_specificity -type f -exec sha256sum {} + | sort > results/aas_structural_specificity/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aas-structural-specificity
+          path: results/aas_structural_specificity/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Fail after preserving diagnostics
+        if: steps.analysis.outcome == 'failure'
+        run: exit 1
