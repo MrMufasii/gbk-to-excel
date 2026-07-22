@@ -1,0 +1,39 @@
+name: Proto-mito complete HMMER hit taxonomy audit
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-all-hits:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check requests==2.32.4
+      - name: Retrieve every result page and classify significant hits by kingdom
+        run: python proto_mito/scripts/fetch_all_hmmer_hits.py
+      - name: Record exact checksums and environment
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p proto_mito_results/hmmer_all_hits
+          python --version > proto_mito_results/hmmer_all_hits/software_versions.txt
+          pip freeze >> proto_mito_results/hmmer_all_hits/software_versions.txt
+          sha256sum proto_mito/scripts/fetch_all_hmmer_hits.py >> proto_mito_results/hmmer_all_hits/software_versions.txt
+          find proto_mito_results/hmmer_all_hits -type f -exec sha256sum {} + | sort > proto_mito_results/hmmer_all_hits/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proto-mito-complete-hmmer-hit-taxonomy
+          path: proto_mito_results/hmmer_all_hits
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 7
